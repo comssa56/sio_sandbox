@@ -1,6 +1,10 @@
+var await_semaphore = require('await-semaphore');
+
 var fs = require('fs');
 var http = require('http');
 var server = http.createServer();
+
+const mutex = new await_semaphore.Mutex();
 
 var io = require('socket.io').listen(server);
 server.listen(8000);
@@ -15,6 +19,94 @@ server.on('request', function(req, res) {
 var usernum = 0;
 var user_table = [];
 
+// 指定ミリ秒間だけループさせる（CPUは常にビジー状態）
+function sleep(waitMsec) {
+  var startMsec = new Date();
+   while (new Date() - startMsec < waitMsec);
+}
+
+///////////////////////////////
+/// ユーザ登録
+///////////////////////////////
+async function CreateEntry(user) 
+{
+  const release = await mutex.acquire();
+  try {
+    var user_found = false;
+    for(var u of user_table) {
+      if(u.uid==user.uid) {
+        console.log("update sid:" + u.sid + "to" + user.sid);
+        u.sid = user.sid; // セッション上書き   
+        u.login = "true";
+        user_found = true;
+      }
+    }
+    if(!user_found) {
+      console.log("add sid:" + user.sid + ", name:" + user.name + ", uid:" + user.uid );
+      user.login = "true";
+      user_table[usernum++] = user;
+    }
+
+    var user_list="current user:";
+    for(const u of user_table) {
+      if(u.name!=user.name) {
+        user_list += u.name + ",";
+      }
+    }
+    return user_list;
+  } finally {
+    release();
+  }
+}
+
+///////////////////////////////
+/// ログイン
+///////////////////////////////
+function Login(socket, user) {
+  CreateEntry(user).then (
+    (result) =>{
+      io.sockets.emit('add text', "user logined:" + user.name);
+      socket.emit('add text', result);
+    },
+    (reject) =>{
+      console.log("login reject:" + reject);
+    },
+  );  
+}
+
+///////////////////////////////
+/// ユーザのエントリーを消す
+///////////////////////////////
+async function　DeleteEntry(sid) {
+  const release = await mutex.acquire();
+  try {
+    for(var user of user_table) {
+      if(user.sid==sid) {
+        user.login = "false";
+        return user.name;
+      }
+    } 
+  } finally {
+    release();
+  }
+}
+
+///////////////////////////////
+/// ログアウト
+///////////////////////////////
+function Logout(socket) {
+  console.log("logout:" + socket.id);
+  DeleteEntry(socket.id).then(
+    (result) => {
+      io.sockets.emit('add text', "logouted:" + result)
+    },
+    (reject) => {
+      console.log("logout rejected:" + reject);
+    }
+  );
+}
+
+
 io.sockets.on('connection', function(socket) {
   console.log("login:"  + socket.id)
 
@@ -23,14 +115,7 @@ io.sockets.on('connection', function(socket) {
 
   /// 切断処理
   socket.on('disconnect', (reason) => {
-    console.log("logout:" + socket.id);
-    for(var user of user_table) {
-      console.log(user.sid)
-      if(user.sid==socket.id) {
-        io.sockets.emit('add text', "logouted:" + user.name)
-      }
-    }
-
+    Logout(socket);
   });
 
   /// ログイン処理メイン
@@ -38,29 +123,11 @@ io.sockets.on('connection', function(socket) {
     var uid  = data.uid; // 全ユーザを一意に特定するやつ
     var name = data.name;
     var sid  = socket.id;
-    console.log("logined uid:" + uid + ", name:" + name + ",sid:" + sid);
+    var user = { 'uid':uid, 'name':name, 'sid':sid };
 
     //user_tableの更新処理
-    var user_found = false;
-    for(var user of user_table) {
-      if(user.uid==uid) {
-        console.log("update sid:" + user.sid + "to" + sid);
-        user.sid = sid; // セッション上書き   
-        user_found = true;
-      }
-    }
-    if(!user_found) {
-      user_table[usernum++] = { 'uid':uid, 'name':name, 'sid':sid };
-    }
+    Login(socket, user);
 
-    // 返答の作成
-    var user_list="current user:";
-    for(const user of user_table) {
-      user_list += user.name + ",";
-    }
-
-    io.sockets.emit('add text', "user logined:" + name);
-    socket.emit('add text', user_list);
   });
 
   /// clientからのメッセージ
