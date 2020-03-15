@@ -1,0 +1,49 @@
+<html>
+  <head>
+    <title>Socket.IO Test</title>
+    <script src="//ajax.googleapis.com/ajax/libs/jquery/1.8.0/jquery.min.js"></script>
+    <script src="/socket.io/socket.io.js"></script>
+    <script>
+      function getParam(name, url) {
+        if (!url) url = window.location.href;
+        name = name.replace(/[\[\]]/g, "\\$&");
+        var regex = new RegExp("[?&]" + name + "(=([^&#]*)|&|#|$)"),
+          results = regex.exec(url);
+        if (!results) return null;
+        if (!results[2]) return '';
+        return decodeURIComponent(results[2].replace(/\+/g, " "));
+      }
+
+      var socket;
+      const name = getParam("name");
+      $(function() {
+        socket = io.connect();
+
+        socket.on('please login', function(data) {
+          socket.emit( 'login', { 'uid':name, 'name' : name });
+        });
+
+        socket.on('add text', function(data) {
+          jQuery('#id_text_box').append(data + "<br/>");
+        });
+
+      });
+
+      function sendMessage() {
+          var message = jQuery(".cl_message_text").val();
+          socket.emit('new message', { 'name' : name, 'msg' : message} );
+          return false;
+      }
+
+  
+    </script>
+  </head>
+  <body>
+    <h1>Socket.IO Test</h1>
+    <form onsubmit="return sendMessage()">
+        <input type="text"  class="cl_message_text" name="message" />
+        <input type="button" onClick="sendMessage()" value="送信"/>
+    </form>
+    <div id='id_text_box'></div>
+  </body>
+</html>

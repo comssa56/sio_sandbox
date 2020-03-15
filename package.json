@@ -1,0 +1,23 @@
+{
+  "name": "sio_sandbox",
+  "version": "1.0.0",
+  "description": "",
+  "main": "index.js",
+  "scripts": {
+    "test": "echo \"Error: no test specified\" && exit 1"
+  },
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/comssa56/sio_sandbox.git"
+  },
+  "keywords": [],
+  "author": "",
+  "license": "ISC",
+  "bugs": {
+    "url": "https://github.com/comssa56/sio_sandbox/issues"
+  },
+  "homepage": "https://github.com/comssa56/sio_sandbox#readme",
+  "dependencies": {
+    "socket.io": "^2.3.0"
+  }
+}
