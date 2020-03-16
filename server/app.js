@@ -1,14 +1,12 @@
-var await_semaphore = require('await-semaphore');
-
 var fs = require('fs');
 var http = require('http');
 var server = http.createServer();
-
-const mutex = new await_semaphore.Mutex();
-
 var io = require('socket.io').listen(server);
 server.listen(8000);
 
+const User = require('./user.js');
+const UserManager = require('./user_manager.js');
+const user_manager = new UserManager();
 
 server.on('request', function(req, res) {
   var stream = fs.createReadStream('front/index.html');
@@ -16,97 +14,42 @@ server.on('request', function(req, res) {
   stream.pipe(res);
 });
 
-var usernum = 0;
-var user_table = [];
-
-// 指定ミリ秒間だけループさせる（CPUは常にビジー状態）
-function sleep(waitMsec) {
-  var startMsec = new Date();
-   while (new Date() - startMsec < waitMsec);
-}
-
-///////////////////////////////
-/// ユーザ登録
-///////////////////////////////
-async function CreateEntry(user) 
-{
-  const release = await mutex.acquire();
-  try {
-    var user_found = false;
-    for(var u of user_table) {
-      if(u.uid==user.uid) {
-        console.log("update sid:" + u.sid + "to" + user.sid);
-        u.sid = user.sid; // セッション上書き   
-        u.login = "true";
-        user_found = true;
-      }
-    }
-    if(!user_found) {
-      console.log("add sid:" + user.sid + ", name:" + user.name + ", uid:" + user.uid );
-      user.login = "true";
-      user_table[usernum++] = user;
-    }
-
-    var user_list="current user:";
-    for(const u of user_table) {
-      if(u.name!=user.name) {
-        user_list += u.name + ",";
-      }
-    }
-    return user_list;
-  } finally {
-    release();
-  }
-}
 
 ///////////////////////////////
 /// ログイン
 ///////////////////////////////
 function Login(socket, user) {
-  CreateEntry(user).then (
-    (result) =>{
+
+    user_manager.entryAsync(user).then ( (result) =>{
+      return user_manager.getLoginUserInfoListAsync()
+    }).then((list) => {  
       io.sockets.emit('add text', "user logined:" + user.name);
-      socket.emit('add text', result);
-    },
-    (reject) =>{
-      console.log("login reject:" + reject);
-    },
-  );  
+      socket.emit('add text', JSON.stringify( list ));    
+    }).catch((reject) => {
+      console.log("Login() reject:" + reject);
+    });  
 }
 
-///////////////////////////////
-/// ユーザのエントリーを消す
-///////////////////////////////
-async function　DeleteEntry(sid) {
-  const release = await mutex.acquire();
-  try {
-    for(var user of user_table) {
-      if(user.sid==sid) {
-        user.login = "false";
-        return user.name;
-      }
-    } 
-  } finally {
-    release();
-  }
-}
 
 ///////////////////////////////
 /// ログアウト
 ///////////////////////////////
 function Logout(socket) {
   console.log("logout:" + socket.id);
-  DeleteEntry(socket.id).then(
-    (result) => {
-      io.sockets.emit('add text', "logouted:" + result)
-    },
-    (reject) => {
-      console.log("logout rejected:" + reject);
-    }
-  );
+  user_manager.logoutAsync(socket.id).then((result) => {
+    return user_manager.getUserAsync(socket.id);
+  }).then((user) => {
+    io.sockets.emit('add text', "logouted:" + user.name);
+  }).catch ((reject) => {
+      console.log("Logout() rejected:" + reject);
+  });
+
 }
 
 
+///////////////////////////////
+/// socket.io処理メイン
+///////////////////////////////
 io.sockets.on('connection', function(socket) {
   console.log("login:"  + socket.id)
 
@@ -123,7 +66,7 @@ io.sockets.on('connection', function(socket) {
     var uid  = data.uid; // 全ユーザを一意に特定するやつ
     var name = data.name;
     var sid  = socket.id;
-    var user = { 'uid':uid, 'name':name, 'sid':sid };
+    const user = new User(sid, uid, name);
 
     //user_tableの更新処理
     Login(socket, user);
